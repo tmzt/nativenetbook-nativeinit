@@ -1,0 +1,6 @@
+#!/bin/sh
+
+echo "Fake Xsession starting"
+echo "\$DISPLAY is ${DISPLAY}"
+echo "Entering infinite loop"
+while true; do sleep 100; done
