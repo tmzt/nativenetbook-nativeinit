@@ -32,7 +32,7 @@ int res = 0;
 
 int main(int argc, char** argv, char** envp)
 {
-	if (argc < 1) {
+	if (argc < 2) {
 		LOG("usage: %s <native root>\n", argv[0]);	
 		exit(1);
 	}
@@ -50,19 +50,19 @@ int main(int argc, char** argv, char** envp)
 		LOG("using default inner init process\n");
 	}
 
-	LOG("Entering chroot (init is %s)", initproc);
+	LOG("Entering chroot (init is %s)\n", initproc);
 
 	res = chroot(rootpath);
 
 	if (res != 0) {
-		LOG("Error entering chroot: %s\n", strerror(res));
+		LOG("Error entering chroot: %d (%s)\n", res, strerror(res));
 		exit(res);
 	}
 
 	res = execve(defaultinitproc, passargv, passenvp);
 
 	if (res != 0) {
-		LOG("Error executing init process: %s\n", strerror(res));
+		LOG("Error executing init process: %d (%s)\n", res, strerror(res));
 		exit(res);
 	}
 
