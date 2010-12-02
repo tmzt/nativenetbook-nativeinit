@@ -56,6 +56,27 @@ char *line = NULL;
 struct process *process = NULL;
 struct process *processes = NULL;
 
+int forkchild(struct process *process)
+{
+	int pid, res;
+
+	LOG("Path is %s\n", process->path);
+
+	pid = fork();
+
+	if (pid) {
+		process->pid = pid;
+		LOG("child pid is %d\n", pid);
+		res = execve(process->path, passargv, passenvp);
+		if (res != 0) {
+			LOG("error starting child process: %s: %d (%s)\n", process->path, res, strerror(0-res));
+			exit(res); /* child process exiting */
+		};
+	} else {
+		return 0;
+	}
+}
+
 int init()
 {
 	LOG("Reading /etc/inittab\n");
@@ -78,6 +99,9 @@ int init()
 	LOG("Done reading from /etc/inittab\n");
 	for (process = processes; process; process = process->next) {
 		LOG("Path is %s\n", process->path);
+
+		LOG("Forking child for %s\n", process->path);
+		forkchild(process);
 	};
 }		
 

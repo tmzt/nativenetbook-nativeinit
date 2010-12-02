@@ -1,0 +1,6 @@
+#!/bin/sh
+
+echo "test2 is running"
+echo "test2 is while true; do sleep 100; done"
+while true; do sleep 100; done
+echo "test2 is exiting"

@@ -1,0 +1,5 @@
+#!/bin/sh
+
+echo "test1 is running"
+echo "test1 is exiting"
+exit 0
