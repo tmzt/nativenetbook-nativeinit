@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <errno.h>
 #include <string.h>
 
 #include <limits.h>
@@ -31,6 +32,51 @@ const char *defaultinitproc = "/init";
 char *initproc;
 
 int res = 0;
+
+#define PROCESS_FLAG_RESTART 1
+
+struct process {
+	struct process *next;
+
+	int ppid;
+	int pid;
+	char *pty;
+	char *tty;
+	int **fds;
+	char *path;
+	int flags;
+};	
+
+int inittabfd = 0;
+FILE *inittabfile = NULL;
+
+char buf[1024];
+char *line = NULL;
+
+struct process *process = NULL;
+struct process *processes = NULL;
+
+int init()
+{
+	LOG("Reading /etc/inittab\n");
+	inittabfile = fopen("/etc/inittab", "r");
+	if (inittabfile == NULL) {
+		LOG("Error reading /etc/inittab: %d\n", errno);	
+		exit(errno);
+	}
+
+	while ((line = fgets((char *) &buf, 1024, inittabfile)) != NULL) {
+		LOG("Read line %s", line);
+		/* for now the format of inittab is one path per line */
+		process = calloc(1, sizeof(struct process));
+		process->path = strdup(line);
+	};
+
+	LOG("Done reading from /etc/inittab\n");
+	for (process = processes; processes->next; process = process->next) {
+		LOG("Path is %s\n", process->path);
+	};
+}		
 
 int main(int argc, char** argv, char** envp)
 {
