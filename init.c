@@ -69,13 +69,14 @@ int init()
 		LOG("Read line %s", line);
 		/* for now the format of inittab is one path per line */
 		process = calloc(1, sizeof(struct process));
+		line[strlen(line)-1] = '\0'; /* remove newline */
 		process->path = strdup(line);
 		process->next = processes;
 		processes = process;
 	};
 
 	LOG("Done reading from /etc/inittab\n");
-	for (process = processes; process->next; process = process->next) {
+	for (process = processes; process; process = process->next) {
 		LOG("Path is %s\n", process->path);
 	};
 }		
