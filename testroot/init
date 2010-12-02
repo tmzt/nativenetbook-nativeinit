@@ -1,0 +1,4 @@
+#!/bin/sh
+echo "inside the test chroot"
+echo "pwd is $(pwd)"
+/bin/busybox env

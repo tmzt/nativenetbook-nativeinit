@@ -17,12 +17,14 @@ char *rootpath = NULL;
 char cwd[PATH_MAX];
 
 char *const passargv[] = {
+	NULL
 };
 
 char *const passenvp[] = {
 	"TERM=linux",
 	"HOME=/home/ubuntu",
-	"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+	NULL
 };
 
 const char *defaultinitproc = "/init";
@@ -52,10 +54,19 @@ int main(int argc, char** argv, char** envp)
 
 	LOG("Entering chroot (init is %s)\n", initproc);
 
-	res = chroot(rootpath);
+	res = chroot((char *)&cwd);
 
 	if (res != 0) {
 		LOG("Error entering chroot: %d (%s)\n", res, strerror(res));
+		exit(res);
+	}
+
+	LOG("changing to /\n");
+	
+	res = chdir("/");
+
+	if (res != 0) {
+		LOG("Changing to / failed: %d (%s)\n", res, strerror(res));
 		exit(res);
 	}
 
