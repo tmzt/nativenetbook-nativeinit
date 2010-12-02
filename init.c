@@ -43,12 +43,10 @@ struct process {
 	char *pty;
 	char *tty;
 	int **fds;
-	char *path;
+	char *tag;
 	int flags;
+	char *path;
 };	
-
-int inittabfd = 0;
-FILE *inittabfile = NULL;
 
 char buf[1024];
 char *line = NULL;
@@ -77,26 +75,104 @@ int forkchild(struct process *process)
 	}
 }
 
+int process_xinitrc() {
+	int pid, res;
+	char *display = NULL;
+	char *const emptyargv[] = {NULL};
+
+	if ((display = getenv("DISPLAY")) == NULL) {
+		LOG("no $DISPLAY xinit is exiting\n");
+		return -1;
+	} 
+
+	LOG("$DISPLAY is %s\n", display);
+
+	LOG("forking xinit now\n");
+
+	pid = fork();
+	if (pid) {
+		LOG("xinit pid is %d\n", pid);
+		return 0;
+	}
+
+	/* for now, we just start /etc/X11/Xsession, this will change */
+
+	/* DISPLAY is already in passenvp, this will be replaced dynamically */
+
+	res = execve("/etc/X11/Xsession", emptyargv, passenvp);
+
+	/* should not reach this point */
+
+	if (res != 0) {
+		LOG("starting Xsession failed, xinit is exiting\n");
+		exit(res);
+	}	
+}
+
 int init()
 {
+	FILE *file = NULL;
+
+	int lineno;
+	char *display = NULL;
+	char *tag = NULL;
+	char *flagstr = NULL;
+	int flags;
+	char *path = NULL;
+
+	LOG("Checking $DISPLAY\n");
+	if ((display = getenv("DISPLAY")) != NULL) {
+		LOG("Forking xinit early\n");
+		process_xinitrc();
+	};	
+
+	LOG("Init process has pid %d\n", getpid());
+
 	LOG("Reading /etc/inittab\n");
-	inittabfile = fopen("/etc/inittab", "r");
-	if (inittabfile == NULL) {
+	file = fopen("/etc/inittab", "r");
+	if (file == NULL) {
 		LOG("Error reading /etc/inittab: %d (%s)\n", errno, strerror(errno));	
 		exit(errno);
 	}
 
-	while ((line = fgets((char *) &buf, 1024, inittabfile)) != NULL) {
+	while ((line = fgets((char *) &buf, 1024, file)) != NULL) {
 		LOG("Read line %s", line);
-		/* for now the format of inittab is one path per line */
 		process = calloc(1, sizeof(struct process));
 		line[strlen(line)-1] = '\0'; /* remove newline */
-		process->path = strdup(line);
+
+		if ((tag = strtok(line, ":")) == NULL) {
+			LOG("Bad line reading tag on /etc/inittab:%d\n", lineno);
+			exit(-1);
+		};
+
+		process->tag = strdup(tag);
+
+		if ((flagstr = strtok(NULL, ":")) == NULL) {
+			LOG("Bad line reading flags on /etc/inittab:%d\n", lineno);
+			exit(-1);
+		}
+
+		if(sscanf(flagstr, "%d", &flags) <1) {
+			LOG("Invalid value for flags, flags must be an integer on /etc/inittab:%d\n", lineno);
+			flags = 0;
+		}
+
+		process->flags = flags;	
+		
+		if ((path = strtok(NULL, ":")) == NULL) {
+			LOG("Bad line reading path on /etc/inittab:%d\n", lineno);
+			exit(-1);
+		}
+
+		process->path = strdup(path); 	
+
+		/* prepend to the list (for now) */
 		process->next = processes;
 		processes = process;
+		lineno++;
 	};
 
-	LOG("Done reading from /etc/inittab\n");
+	LOG("Done reading /etc/inittab\n");
 	for (process = processes; process; process = process->next) {
 		LOG("Path is %s\n", process->path);
 
