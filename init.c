@@ -61,7 +61,7 @@ int init()
 	LOG("Reading /etc/inittab\n");
 	inittabfile = fopen("/etc/inittab", "r");
 	if (inittabfile == NULL) {
-		LOG("Error reading /etc/inittab: %d\n", errno);	
+		LOG("Error reading /etc/inittab: %d (%s)\n", errno, strerror(errno));	
 		exit(errno);
 	}
 
@@ -70,10 +70,12 @@ int init()
 		/* for now the format of inittab is one path per line */
 		process = calloc(1, sizeof(struct process));
 		process->path = strdup(line);
+		process->next = processes;
+		processes = process;
 	};
 
 	LOG("Done reading from /etc/inittab\n");
-	for (process = processes; processes->next; process = process->next) {
+	for (process = processes; process->next; process = process->next) {
 		LOG("Path is %s\n", process->path);
 	};
 }		
@@ -116,6 +118,7 @@ int main(int argc, char** argv, char** envp)
 		exit(res);
 	}
 
+#if 0
 	res = execve(defaultinitproc, passargv, passenvp);
 
 	if (res != 0) {
@@ -124,6 +127,11 @@ int main(int argc, char** argv, char** envp)
 	}
 
 	/* won't be reached */
+#else
+
+	return init();
+
+#endif
 
 }
 
