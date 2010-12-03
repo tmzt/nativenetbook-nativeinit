@@ -8,7 +8,17 @@
 #include <limits.h>
 #include <unistd.h>
 
+
+#if 1
+
+#include "android/log.h"
+
+#define LOG_TAG "NativeInit"
+//define LOG(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#define LOG(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#else
 #define LOG(...) fprintf(stderr, __VA_ARGS__)
+#endif
 
 int pid;
 int initpid;
@@ -35,9 +45,11 @@ char *initproc;
 int res = 0;
 
 #define PROCESS_FLAG_RESTART 1
+#define PROCESS_FLAG_WAIT 2
 
 struct process {
 	struct process *next;
+    struct process *running_next;
 
 	int ppid;
 	int pid;
@@ -54,6 +66,7 @@ char *line = NULL;
 
 struct process *process = NULL;
 struct process *processes = NULL;
+struct process *running = NULL;
 
 int forkchild(struct process *process)
 {
@@ -64,22 +77,29 @@ int forkchild(struct process *process)
 	pid = fork();
 
 	if (pid) {
-		process->pid = pid;
+        if (process->flags && PROCESS_FLAG_WAIT) {
+            LOG("waiting for child %d (%s)\n", pid, process->path);
+            waitpid(pid);
+        }
+
 		LOG("child pid is %d\n", pid);
+
+		process->pid = pid;
+        process->running_next = running;
+        running = process;
+    } else {
 		res = execve(process->path, passargv, passenvp);
 		if (res != 0) {
 			LOG("error starting child process: %s: %d (%s)\n", process->path, res, strerror(0-res));
 			exit(res); /* child process exiting */
 		};
-	} else {
-		return 0;
-	}
+    };
 }
 
 int start_dbus() {
-	int res, pid;
-	char *const  argv = {
-		"/usr/bin/dbus-daemon",
+	int res, pid, wpid;
+	char *const  argv[] = {
+		"dbus-daemon",
 		"--system",
 		NULL
 	};
@@ -88,31 +108,38 @@ int start_dbus() {
 
 	process = calloc(1, sizeof(struct process));
 
-	process->path = strdup(argv[0]);
+	process->path = "/bin/dbus-daemon";
 
-	if (pid) {
-		LOG("dbus pid is %d\n", pid);
-		LOG("cleaning up /var/run/dbus/pid\n");	
-		unlink("/var/run/dbus/pid");
-		LOG("starting %s\n", process->path);
-		res = execve(argv[0], argv, passenvp);
-		if (res != 0) {
-			LOG("error starting dbus-daemon: %d (%s) \n", res, strerror(0-res));
-			exit(res);
-		};
-	} else {
-		/* parent */
+    /* dbus-daemon will fork() */
 
-		process->pid = pid;
-		process->next = processes;
-		processes = process;
-	};
+    pid = fork();
+
+    if (pid) {
+	    LOG("dbus pid is %d\n", pid);
+        LOG("waiting for dbus-daemon to fork and exit\n");
+        waitpid(pid);
+        LOG("done.\n");
+        return 0;
+    } else {
+	    LOG("cleaning up /var/run/dbus/pid\n");	
+	    unlink("/var/run/dbus/pid");
+	    LOG("starting %s\n", process->path);
+	    res = execve(process->path, argv, passenvp);
+	    if (res != 0) {
+		    LOG("error starting dbus-daemon: %d (%s) \n", res, strerror(0-res));
+		    exit(res);
+	    };
+    };
+
+    return 0;
 }		
 
 int process_xinitrc() {
 	int pid, res;
 	char *display = NULL;
-	char *const emptyargv[] = {NULL};
+	char *const xinitargv[] = { "Xsession", NULL };
+
+    LOG("in process_xinitrc\n");
 
 	if ((display = getenv("DISPLAY")) == NULL) {
 		LOG("no $DISPLAY xinit is exiting\n");
@@ -124,23 +151,35 @@ int process_xinitrc() {
 	LOG("forking xinit now\n");
 
 	pid = fork();
+    LOG("pid is %d\n", pid);
 	if (pid) {
 		LOG("xinit pid is %d\n", pid);
+
+        /* track this pid? */
+
 		return 0;
-	}
+	} else {
+        LOG("in xinit child\n");
+        FILE *msg = fopen("/root/.nativeinit-msg", "w");
+        fprintf(msg, "in xinit child, getpid(): %d\n", getpid());
+        fflush(msg);
+        fclose(msg);
 
-	/* for now, we just start /etc/X11/Xsession, this will change */
+	    /* for now, we just start /etc/X11/Xsession, this will change */
 
-	/* DISPLAY is already in passenvp, this will be replaced dynamically */
+	    /* DISPLAY is already in passenvp, this will be replaced dynamically */
 
-	res = execve("/etc/X11/Xsession", emptyargv, passenvp);
+        LOG("starting Xsession\n");
+	    res = execve("/etc/X11/Xsession", xinitargv, passenvp);
+//        res = system("/etc/X11/Xsession");
 
-	/* should not reach this point */
+	    /* should not reach this point */
 
-	if (res != 0) {
-		LOG("starting Xsession failed, xinit is exiting\n");
-		exit(res);
-	}	
+	    if (res != 0) {
+		    LOG("starting Xsession failed, xinit is exiting\n");
+		    exit(res);
+	    }
+    }
 }
 
 int init()
@@ -154,13 +193,19 @@ int init()
 	int flags;
 	char *path = NULL;
 
+	LOG("Init process has pid %d\n", getpid());
+
+    LOG("Starting dbus-daemon --system\n");
+    start_dbus();
+    LOG("dbus started\n");
+
 	LOG("Checking $DISPLAY\n");
-	if ((display = getenv("DISPLAY")) != NULL) {
+    display = getenv("DISPLAY");
+    LOG("$DISPLAY is %s\n", display);
+	if (display != NULL) {
 		LOG("Forking xinit early\n");
 		process_xinitrc();
-	};	
-
-	LOG("Init process has pid %d\n", getpid());
+	};
 
 	LOG("Reading /etc/inittab\n");
 	file = fopen("/etc/inittab", "r");
@@ -191,7 +236,7 @@ int init()
 			flags = 0;
 		}
 
-		process->flags = flags;	
+		process->flags = flags;
 		
 		if ((path = strtok(NULL, ":")) == NULL) {
 			LOG("Bad line reading path on /etc/inittab:%d\n", lineno);
