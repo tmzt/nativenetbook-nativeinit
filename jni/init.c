@@ -25,6 +25,7 @@ char *const passenvp[] = {
 	"TERM=linux",
 	"HOME=/home/ubuntu",
 	"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+	"DISPLAY=:0",
 	NULL
 };
 
@@ -74,6 +75,39 @@ int forkchild(struct process *process)
 		return 0;
 	}
 }
+
+int start_dbus() {
+	int res, pid;
+	char *const  argv = {
+		"/usr/bin/dbus-daemon",
+		"--system",
+		NULL
+	};
+
+	struct process *process;
+
+	process = calloc(1, sizeof(struct process));
+
+	process->path = strdup(argv[0]);
+
+	if (pid) {
+		LOG("dbus pid is %d\n", pid);
+		LOG("cleaning up /var/run/dbus/pid\n");	
+		unlink("/var/run/dbus/pid");
+		LOG("starting %s\n", process->path);
+		res = execve(argv[0], argv, passenvp);
+		if (res != 0) {
+			LOG("error starting dbus-daemon: %d (%s) \n", res, strerror(0-res));
+			exit(res);
+		};
+	} else {
+		/* parent */
+
+		process->pid = pid;
+		process->next = processes;
+		processes = process;
+	};
+}		
 
 int process_xinitrc() {
 	int pid, res;
