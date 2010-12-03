@@ -8,6 +8,7 @@
 #include <limits.h>
 #include <unistd.h>
 
+#include <sys/wait.h>
 
 #if 1
 
@@ -70,34 +71,35 @@ struct process *running = NULL;
 
 int forkchild(struct process *process)
 {
-	int pid, res;
+	int pid, res, status;
 
 	LOG("Path is %s\n", process->path);
 
 	pid = fork();
 
 	if (pid) {
-        if (process->flags && PROCESS_FLAG_WAIT) {
+        if (process->flags & PROCESS_FLAG_WAIT) {
             LOG("waiting for child %d (%s)\n", pid, process->path);
-            waitpid(pid);
+
+		    LOG("child pid is %d\n", pid);
+
+		    process->pid = pid;
+            process->running_next = running;
+            running = process;
+
+            waitpid(pid, &status, WEXITED);
         }
-
-		LOG("child pid is %d\n", pid);
-
-		process->pid = pid;
-        process->running_next = running;
-        running = process;
     } else {
 		res = execve(process->path, passargv, passenvp);
 		if (res != 0) {
 			LOG("error starting child process: %s: %d (%s)\n", process->path, res, strerror(0-res));
-			exit(res); /* child process exiting */
 		};
+        exit(res);
     };
 }
 
 int start_dbus() {
-	int res, pid, wpid;
+	int res, pid, status;
 	char *const  argv[] = {
 		"dbus-daemon",
 		"--system",
@@ -117,7 +119,7 @@ int start_dbus() {
     if (pid) {
 	    LOG("dbus pid is %d\n", pid);
         LOG("waiting for dbus-daemon to fork and exit\n");
-        waitpid(pid);
+        waitpid(pid, &status, WEXITED);
         LOG("done.\n");
         return 0;
     } else {
@@ -151,7 +153,6 @@ int process_xinitrc() {
 	LOG("forking xinit now\n");
 
 	pid = fork();
-    LOG("pid is %d\n", pid);
 	if (pid) {
 		LOG("xinit pid is %d\n", pid);
 
@@ -159,7 +160,7 @@ int process_xinitrc() {
 
 		return 0;
 	} else {
-        LOG("in xinit child\n");
+        LOG("in xinit child, getpid(): %d\n", getpid());
         FILE *msg = fopen("/root/.nativeinit-msg", "w");
         fprintf(msg, "in xinit child, getpid(): %d\n", getpid());
         fflush(msg);
