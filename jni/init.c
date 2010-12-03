@@ -103,24 +103,32 @@ int start_dbus() {
 	char *const  argv[] = {
 		"dbus-daemon",
 		"--system",
+        "--no-fork",
 		NULL
 	};
 
 	struct process *process;
 
-	process = calloc(1, sizeof(struct process));
+    process = calloc(1, sizeof(struct process));
+    process->path = "/bin/dbus-daemon";
+    process->flags |= PROCESS_FLAG_RESTART;
+    process->flags &= ~PROCESS_FLAG_WAIT;
 
-	process->path = "/bin/dbus-daemon";
-
-    /* dbus-daemon will fork() */
+    /* dbus-daemon will not fork() */
 
     pid = fork();
 
     if (pid) {
 	    LOG("dbus pid is %d\n", pid);
-        LOG("waiting for dbus-daemon to fork and exit\n");
-        waitpid(pid, &status, WEXITED);
-        LOG("done.\n");
+//        LOG("waiting for dbus-daemon to fork and exit\n");
+//        waitpid(pid, &status, WEXITED);
+//        LOG("done.\n");
+
+        process->pid = pid;
+
+        process->running_next = running;
+        running = process;
+
         return 0;
     } else {
 	    LOG("cleaning up /var/run/dbus/pid\n");	
@@ -145,41 +153,42 @@ int process_xinitrc() {
 
 	if ((display = getenv("DISPLAY")) == NULL) {
 		LOG("no $DISPLAY xinit is exiting\n");
-		return -1;
+		exit(-1);
 	} 
 
 	LOG("$DISPLAY is %s\n", display);
 
-	LOG("forking xinit now\n");
+    LOG("in xinit child, getpid(): %d\n", getpid());
+    FILE *msg = fopen("/root/.nativeinit-msg", "w");
+    fprintf(msg, "in xinit child, getpid(): %d\n", getpid());
+    fflush(msg);
+    fclose(msg);
 
-	pid = fork();
-	if (pid) {
-		LOG("xinit pid is %d\n", pid);
+    /* for now, we just start /etc/X11/Xsession, this will change */
 
-        /* track this pid? */
+    /* DISPLAY is already in passenvp, this will be replaced dynamically */
 
-		return 0;
-	} else {
-        LOG("in xinit child, getpid(): %d\n", getpid());
-        FILE *msg = fopen("/root/.nativeinit-msg", "w");
-        fprintf(msg, "in xinit child, getpid(): %d\n", getpid());
-        fflush(msg);
-        fclose(msg);
+    LOG("starting Xsession\n");
+    res = execve("/etc/X11/Xsession", xinitargv, passenvp);
 
-	    /* for now, we just start /etc/X11/Xsession, this will change */
+    /* should not reach this point */
 
-	    /* DISPLAY is already in passenvp, this will be replaced dynamically */
+    if (res != 0) {
+	    LOG("starting Xsession failed, xinit is exiting\n");
+    }
+    exit(res);
+}
 
-        LOG("starting Xsession\n");
-	    res = execve("/etc/X11/Xsession", xinitargv, passenvp);
-//        res = system("/etc/X11/Xsession");
+int start_xinit() {
+    int pid, res, status;
 
-	    /* should not reach this point */
-
-	    if (res != 0) {
-		    LOG("starting Xsession failed, xinit is exiting\n");
-		    exit(res);
-	    }
+    pid = fork();
+    if (pid) {
+        LOG("xinit pid is %d\n", pid);
+        
+    } else {
+        LOG("processing xinitrc\n");
+        return process_xinitrc();
     }
 }
 
@@ -199,14 +208,6 @@ int init()
     LOG("Starting dbus-daemon --system\n");
     start_dbus();
     LOG("dbus started\n");
-
-	LOG("Checking $DISPLAY\n");
-    display = getenv("DISPLAY");
-    LOG("$DISPLAY is %s\n", display);
-	if (display != NULL) {
-		LOG("Forking xinit early\n");
-		process_xinitrc();
-	};
 
 	LOG("Reading /etc/inittab\n");
 	file = fopen("/etc/inittab", "r");
@@ -259,6 +260,15 @@ int init()
 		LOG("Forking child for %s\n", process->path);
 		forkchild(process);
 	};
+
+	LOG("Checking $DISPLAY\n");
+    display = getenv("DISPLAY");
+    LOG("$DISPLAY is %s\n", display);
+	if (display != NULL) {
+		LOG("Forking xinit early\n");
+		start_xinit();
+	};
+
 }		
 
 int main(int argc, char** argv, char** envp)
